@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>GymPlanner</title>
+  <meta name="description" content="Personal weekly gym plan, workout tracker, exercise guide and AI coach.">
+  <meta name="theme-color" content="#0f1115">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🏋️</text></svg>">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <header class="topbar">
+    <a href="#/today" class="brand">🏋️ GymPlanner</a>
+    <a href="#/more" class="topbar-more" aria-label="More">☰</a>
+  </header>
+
+  <main id="app" class="wrap"></main>
+
+  <div id="rest" class="rest" aria-live="polite">
+    <div class="rest-bar"><i></i></div>
+    <div class="rest-row">
+      <span>Rest</span><b class="rest-time">0:00</b>
+      <button class="btn btn-sm" data-action="rest-minus">−15s</button>
+      <button class="btn btn-sm" data-action="rest-plus">+15s</button>
+      <button class="btn btn-sm btn-primary" data-action="rest-skip">Skip</button>
+    </div>
+  </div>
+
+  <nav class="tabs">
+    <a href="#/today" data-tab="today"><span>📅</span>Today</a>
+    <a href="#/week" data-tab="week"><span>🗓️</span>Week</a>
+    <a href="#/library" data-tab="library"><span>📚</span>Library</a>
+    <a href="#/progress" data-tab="progress"><span>📈</span>Progress</a>
+    <a href="#/coach" data-tab="coach"><span>✨</span>Coach</a>
+  </nav>
+
+  <div id="sheet" class="sheet"></div>
+  <div id="toast" class="toast" role="status"></div>
+  <div id="tip" class="tip"></div>
+
+  <script src="js/data/exercises.js"></script>
+  <script src="js/data/plan.js"></script>
+  <script src="js/musclemap.js"></script>
+  <script src="js/store.js"></script>
+  <script src="js/gemini.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>

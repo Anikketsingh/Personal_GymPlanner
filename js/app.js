@@ -514,9 +514,13 @@
 
   /* ---------- AI Coach ---------- */
   let coachBusy = false;
+  let coachImgs = [];   // photos attached to the next message: [{ mime, data(base64) }]
+  let coachDraft = '';  // unsent text, kept across re-renders
+  const ICON_CAM = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8h3l2-3h6l2 3h3v11H4z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><circle cx="12" cy="13" r="3.5" fill="none" stroke="currentColor" stroke-width="2"/></svg>';
+  const ICON_PIC = '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="4.5" width="17" height="15" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="9" cy="10" r="1.8" fill="currentColor"/><path d="M4 18l5-5 4 4 3-3 4 4" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>';
   views.coach = (arg, query) => {
     const st = S();
-    const prefill = query.get('q') || '';
+    const prefill = query.get('q') || coachDraft;
     if (!st.settings.geminiKey) {
       return `<header class="page-head"><h1>AI Coach</h1><p class="muted">Powered by Google Gemini — knows your plan, your gym's equipment and your recent workouts.</p></header>
         <section class="card"><h2>Connect Gemini</h2>
@@ -533,14 +537,51 @@
       'Build me a 20-minute weak-point session for my shoulders.',
       'How much protein should I eat and what does a day of meals look like?',
     ];
-    return `<header class="page-head row-between"><div><h1>AI Coach</h1><p class="muted small">Model: ${esc(st.settings.geminiModel)} · knows your plan, equipment & history</p></div>
+    const photoQuick = [
+      ['📷 What machine is this & how do I use it?', 'What machine/equipment is this? Which muscles does it train, how do I set it up and use it with good form, and where does it fit in my plan?'],
+      ['📷 Check my form', 'Check my exercise form in this photo. What should I fix?'],
+      ['📷 How much protein is in this meal?', 'Estimate the protein, calories, carbs and fat in this meal, and tell me if it fits my training goals.'],
+    ];
+    return `<header class="page-head row-between"><div><h1>AI Coach</h1><p class="muted small">Model: ${esc(st.settings.geminiModel || 'auto (newest available)')} · knows your plan, equipment & history · 📷 photos welcome</p></div>
         ${st.coach.length ? '<button class="btn btn-ghost btn-sm" data-action="clearchat">Clear chat</button>' : ''}</header>
       <div class="chat" id="chat">${st.coach.length ? st.coach.map((m) => msgHtml(m)).join('') : '<p class="muted center">Ask anything about training, form, alternatives, recovery or nutrition.</p>'}
         ${coachBusy ? '<div class="msg msg-model"><span class="typing"><i></i><i></i><i></i></span></div>' : ''}</div>
-      <div class="chips chips-scroll">${quick.map((q) => `<button class="chip-btn" data-action="quick" data-q="${esc(q)}">${esc(q)}</button>`).join('')}</div>
-      <form class="chat-form" data-form="chat"><textarea name="q" rows="2" placeholder="Message your coach…" required>${esc(prefill)}</textarea><button class="btn btn-primary" ${coachBusy ? 'disabled' : ''}>Send</button></form>`;
+      <div class="chips chips-scroll">${photoQuick.map(([label, q]) => `<button class="chip-btn" data-action="photoquick" data-q="${esc(q)}">${esc(label)}</button>`).join('')}${quick.map((q) => `<button class="chip-btn" data-action="quick" data-q="${esc(q)}">${esc(q)}</button>`).join('')}</div>
+      <form class="chat-form" data-form="chat">
+        ${coachImgs.length ? `<div class="attach-row">${coachImgs.map((im, i) => `<span class="attach"><img src="data:${im.mime};base64,${im.data}" alt="Attached photo ${i + 1}"><button type="button" data-action="rmimg" data-i="${i}" aria-label="Remove photo">✕</button></span>`).join('')}</div>` : ''}
+        <div class="chat-row">
+          <label class="icon-btn" title="Take a photo" aria-label="Take a photo">${ICON_CAM}<input type="file" accept="image/*" capture="environment" data-coachimg hidden></label>
+          <label class="icon-btn" title="Upload from gallery" aria-label="Upload photos from gallery">${ICON_PIC}<input type="file" accept="image/*" multiple data-coachimg hidden></label>
+          <textarea name="q" rows="2" placeholder="${coachImgs.length ? 'Ask about the photo…' : 'Message your coach…'}">${esc(prefill)}</textarea>
+          <button class="btn btn-primary" ${coachBusy ? 'disabled' : ''}>Send</button>
+        </div>
+      </form>`;
   };
-  function msgHtml(m) { return `<div class="msg msg-${m.role}">${m.role === 'model' ? md(m.text) : esc(m.text).replace(/\n/g, '<br>')}</div>`; }
+  function msgHtml(m) {
+    const imgs = (m.images || []).map((im) => (im.data ? `<img class="msg-img" src="data:${im.mime};base64,${im.data}" alt="Photo you sent">` : '<span class="msg-img msg-img-gone">📷 photo</span>')).join('');
+    return `<div class="msg msg-${m.role}">${imgs ? `<div class="msg-imgs">${imgs}</div>` : ''}${m.role === 'model' ? md(m.text) : esc(m.text).replace(/\n/g, '<br>')}</div>`;
+  }
+
+  /** Shrinks a photo to max 1024px JPEG so it uploads fast and fits in storage. */
+  async function shrinkImage(file, max = 1024, quality = 0.8) {
+    const url = URL.createObjectURL(file);
+    try {
+      const img = await new Promise((resolve, reject) => { const i = new Image(); i.onload = () => resolve(i); i.onerror = () => reject(new Error(`Can't read ${file.name || 'this image'} — try a JPG or PNG`)); i.src = url; });
+      const scale = Math.min(1, max / Math.max(img.naturalWidth, img.naturalHeight));
+      const c = document.createElement('canvas');
+      c.width = Math.round(img.naturalWidth * scale); c.height = Math.round(img.naturalHeight * scale);
+      c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+      return { mime: 'image/jpeg', data: c.toDataURL('image/jpeg', quality).split(',')[1] };
+    } finally { URL.revokeObjectURL(url); }
+  }
+  async function addCoachImages(files) {
+    for (const f of Array.from(files).slice(0, 4 - coachImgs.length)) {
+      try { coachImgs.push(await shrinkImage(f)); } catch (err) { toast(esc(err.message)); }
+    }
+    if (files.length > 4) toast('Up to 4 photos per message');
+    render();
+    const ta = document.querySelector('.chat-form textarea'); if (ta) ta.focus();
+  }
   function md(text) {
     const lines = esc(text).split('\n');
     let out = ''; let list = null;
@@ -559,8 +600,12 @@
   }
   async function sendCoach(text) {
     const st = S();
-    if (coachBusy || !text.trim()) return;
-    st.coach.push({ role: 'user', text: text.trim() });
+    text = (text || '').trim();
+    if (coachBusy || (!text && !coachImgs.length)) return;
+    const msg = { role: 'user', text: text || 'What do you see in this photo? Give me useful advice for my training.' };
+    if (coachImgs.length) msg.images = coachImgs;
+    st.coach.push(msg);
+    coachImgs = []; coachDraft = '';
     G.store.save(); coachBusy = true; render(); scrollChat();
     try {
       const hist = st.coach.filter((m) => !m.text.startsWith('⚠️')).slice(-20);
@@ -619,7 +664,7 @@
       </div></section>
       <section class="card"><h2>Gemini AI coach</h2><div class="form-grid">
         <label class="span2">API key<input type="password" data-setting="geminiKey" value="${esc(s.geminiKey)}" placeholder="Paste key from aistudio.google.com/apikey" autocomplete="off"></label>
-        <label class="span2">Model<input data-setting="geminiModel" value="${esc(s.geminiModel)}" list="models"><datalist id="models"></datalist></label>
+        <label class="span2">Model<input data-setting="geminiModel" value="${esc(s.geminiModel)}" list="models" placeholder="Auto — newest available model"><datalist id="models"></datalist></label>
         <button class="btn span2" data-action="testkey">Test key & load available models</button>
         <p class="muted small span2" id="keymsg">Your key stays in this browser's storage and is only sent to Google.</p>
       </div></section>
@@ -726,6 +771,14 @@
       case 'delsession': if (confirm('Delete this workout permanently?')) { st.sessions = st.sessions.filter((s) => s.id !== el.dataset.id); G.store.save(); render(); } break;
       case 'askcoach': closeSheet(); location.hash = `#/coach?q=${encodeURIComponent(el.dataset.q)}`; break;
       case 'quick': sendCoach(el.dataset.q); break;
+      case 'photoquick': {
+        coachDraft = el.dataset.q;
+        const ta = document.querySelector('.chat-form textarea'); if (ta) ta.value = coachDraft;
+        if (coachImgs.length) sendCoach(coachDraft);
+        else document.querySelector('input[data-coachimg][capture]').click();
+        break;
+      }
+      case 'rmimg': coachDraft = (document.querySelector('.chat-form textarea') || {}).value || coachDraft; coachImgs.splice(+el.dataset.i, 1); render(); break;
       case 'clearchat': if (confirm('Clear the conversation?')) { st.coach = []; G.store.save(); render(); } break;
       case 'preset': {
         const p = el.dataset.p;
@@ -750,6 +803,8 @@
       const entry = getEntry(t.dataset.day, slot, true);
       entry.sets[+t.dataset.i][t.dataset.set] = t.value.replace(',', '.');
       G.store.save();
+    } else if (t.matches('.chat-form textarea')) {
+      coachDraft = t.value;
     } else if (t.dataset.lib === 'q') {
       libState.q = t.value;
       const grid = document.getElementById('lib-grid');
@@ -766,6 +821,7 @@
       st.settings[t.dataset.setting] = t.type === 'checkbox' ? t.checked : t.value.trim();
       G.store.save(); toast('Saved');
     } else if (t.hasAttribute('data-import') && t.files[0]) importData(t.files[0]);
+    else if (t.hasAttribute('data-coachimg') && t.files.length) { coachDraft = (document.querySelector('.chat-form textarea') || {}).value || coachDraft; addCoachImages(t.files); }
   });
 
   document.addEventListener('submit', (ev) => {
@@ -837,8 +893,15 @@
     try {
       const models = await G.gemini.listModels();
       document.getElementById('models').innerHTML = models.map((m) => `<option value="${esc(m)}">`).join('');
-      const cur = S().settings.geminiModel;
-      msg.innerHTML = `✓ Key works. ${models.length} models available${models.includes(cur) ? '' : ` — <b>"${esc(cur)}" isn't one of them</b>, pick one from the Model field (e.g. a "flash" model)`}.`;
+      let cur = S().settings.geminiModel;
+      let note = '';
+      if (!models.includes(cur)) {
+        cur = await G.gemini.bestModel();
+        S().settings.geminiModel = cur; G.store.save();
+        const field = document.querySelector('[data-setting="geminiModel"]'); if (field) field.value = cur;
+        note = ` Switched to <b>${esc(cur)}</b> (newest available).`;
+      }
+      msg.innerHTML = `✓ Key works. ${models.length} models available.${note}`;
     } catch (err) { msg.textContent = `✕ ${err.message}`; }
   }
 

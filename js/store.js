@@ -7,7 +7,7 @@
 
   const DEFAULT = () => ({
     version: 1,
-    settings: { units: 'kg', restAuto: true, geminiKey: '', geminiModel: 'gemini-2.5-flash', sound: true },
+    settings: { units: 'kg', restAuto: true, geminiKey: '', geminiModel: '', sound: true },
     equipment: { ...ALL_EQUIPMENT },
     swaps: {},          // slotId -> exerciseId (user's preferred choice)
     drafts: {},         // dayKey -> { date, startedAt, entries: { slotId: { exId, sets:[{w,r,done}] } } }
@@ -24,13 +24,28 @@
     // New equipment keys added in later versions default to available.
     state.equipment = Object.assign({ ...ALL_EQUIPMENT }, state.equipment);
     state.settings = Object.assign(DEFAULT().settings, state.settings);
+    // Retired model names: clear so the coach auto-selects the newest available model.
+    if (/^gemini-(1\.|2\.0|2\.5)/.test(state.settings.geminiModel || '')) state.settings.geminiModel = '';
   } catch (err) {
     console.warn('Could not read saved data', err);
     state = DEFAULT();
   }
 
+  // Photos in the coach chat are big; keep full image data only on the most recent few.
+  function pruneImages(keep) {
+    let seen = 0;
+    for (let i = state.coach.length - 1; i >= 0; i--) {
+      for (const im of state.coach[i].images || []) {
+        if (!im.data) continue;
+        if (++seen > keep) { delete im.data; }
+      }
+    }
+  }
+
   function save() {
-    try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (err) { console.warn('Save failed', err); }
+    for (const keep of [4, 1, 0]) {
+      try { pruneImages(keep); localStorage.setItem(KEY, JSON.stringify(state)); return; } catch (err) { console.warn('Save failed, trimming photos', err); }
+    }
   }
 
   const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
